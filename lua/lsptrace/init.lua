@@ -29,22 +29,26 @@ local function trace_line_to_header(line)
 		return line
 	end
 
-	local method_part = "[%s]"
-	local from_part = " %s from %s"
-	local id_part = lsptrace.msgKind ~= "notification" and string.format(" %d ", lsptrace.id) or ""
-	local body_part = " %s"
-	local body_replace = ""
+	local kind_part = lsptrace.msgKind == "request" and "REQ"
+		or lsptrace.msgKind == "response" and "RSP"
+		or lsptrace.msgKind == "notification" and "NTF"
+		or lsptrace.msgKind == "error" and "ERR"
+		or "???"
+	local from_part = lsptrace.from == "client" and kind_part .. "-->" or "<--" .. kind_part
+	local method_part = string.format("[%s]", lsptrace.method)
+	local id_part = lsptrace.msgKind ~= "notification" and string.format(" id=%d ", lsptrace.id) or ""
+	local body_part = ""
 	if lsptrace.msgKind == "notification" or lsptrace.msgKind == "request" then
-		body_replace = vim.json.encode(lsptrace.msg.params)
+		body_part = vim.json.encode(lsptrace.msg.params)
 	elseif lsptrace.msgKind == "response" then
-		body_replace = vim.json.encode(lsptrace.msg.result)
+		body_part = vim.json.encode(lsptrace.msg.result)
 	elseif lsptrace.msgKind == "error" then
-		body_replace = vim.json.encode(lsptrace.msg.error)
+		body_part = vim.json.encode(lsptrace.msg.error)
 	end
 
-	local format_str = method_part .. from_part .. id_part .. body_part
+	local format_str = table.concat({ from_part, " ", method_part, id_part, " ", body_part }, "")
 
-	return string.format(format_str, lsptrace.method, lsptrace.msgKind, lsptrace.from, body_replace)
+	return format_str
 end
 -- pretty print original "long" text line
 local function pretty_print_original(line)
@@ -68,6 +72,7 @@ local function pretty_print_original(line)
 	-- vim.print(vim.inspect({ name = 'hello', x = 'y' }))
 	-- return lines
 end
+
 function M.show_full_message()
 	local lineno = vim.fn.line(".")
 	local original_line = M.data.trace_lines[lineno]
