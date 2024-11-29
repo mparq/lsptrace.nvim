@@ -21,11 +21,30 @@ M.data = {
 ---@field params any
 ---@field result any
 ---@field error any
-local function parse_line(line)
+
+--- convert the large trace line into a readable header
+local function trace_line_to_header(line)
+	local lsptrace = vim.json.decode(line) --[[@as LSPTrace]]
 	if #line <= M.config.max_line_length then
 		return line
 	end
-	return line:sub(1, M.config.max_line_length - #M.config.truncate_indicator) .. M.config.truncate_indicator
+
+	local method_part = "[%s]"
+	local from_part = " %s from %s"
+	local id_part = lsptrace.msgKind ~= "notification" and string.format(" %d ", lsptrace.id) or ""
+	local body_part = " %s"
+	local body_replace = ""
+	if lsptrace.msgKind == "notification" or lsptrace.msgKind == "request" then
+		body_replace = vim.json.encode(lsptrace.msg.params)
+	elseif lsptrace.msgKind == "response" then
+		body_replace = vim.json.encode(lsptrace.msg.result)
+	elseif lsptrace.msgKind == "error" then
+		body_replace = vim.json.encode(lsptrace.msg.error)
+	end
+
+	local format_str = method_part .. from_part .. id_part .. body_part
+
+	return string.format(format_str, lsptrace.method, lsptrace.msgKind, lsptrace.from, body_replace)
 end
 -- pretty print original "long" text line
 local function pretty_print_original(line)
@@ -94,15 +113,18 @@ function M.view_lsptrace()
 	local view_buffer = vim.api.nvim_create_buf(true, true)
 	local view_lines = {}
 	for _, line in pairs(buf_lines) do
-		table.insert(view_lines, parse_line(line))
+		table.insert(view_lines, trace_line_to_header(line))
 	end
 	vim.api.nvim_buf_set_lines(view_buffer, 0, -1, false, view_lines)
 	local win = vim.api.nvim_open_win(view_buffer, true, {
 		split = "right",
 		win = 0,
 	})
-	vim.api.nvim_buf_set_option(view_buffer, "modifiable", false)
-	vim.api.nvim_buf_set_option(view_buffer, "buftype", "nofile")
+	-- buffer is readonly
+	vim.api.nvim_set_option_value("modifiable", false, { buf = view_buffer })
+	vim.api.nvim_set_option_value("buftype", "nofile", { buf = view_buffer })
+	-- set buf window to nowrap due to potentially long lines
+	vim.api.nvim_set_option_value("wrap", false, { win = win })
 	vim.api.nvim_buf_set_keymap(
 		view_buffer,
 		"n",
