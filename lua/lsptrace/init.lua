@@ -6,11 +6,48 @@ M.config = {
 M.data = {
 	trace_lines = nil,
 }
+---@class LSPTrace
+---@field msgKind string
+---@field from string
+---@field method string
+---@field id number
+---@field timestamp string
+---@field msg RawLSPMessage
+
+---@class RawLSPMessage
+---@field jsonrpc string
+---@field id number
+---@field method string
+---@field params any
+---@field result any
+---@field error any
 local function parse_line(line)
 	if #line <= M.config.max_line_length then
 		return line
 	end
 	return line:sub(1, M.config.max_line_length - #M.config.truncate_indicator) .. M.config.truncate_indicator
+end
+-- pretty print original "long" text line
+local function pretty_print_original(line)
+	local lsptrace = vim.json.decode(line) --[[@as LSPTrace]]
+	return vim.split(vim.inspect(lsptrace), "\n")
+	-- local lines = {}
+	-- table.insert(lines, string.format("[%s] %s from %s", lsptrace.method, lsptrace.msgKind, lsptrace.from))
+	-- table.insert(lines, string.format("timestamp: %s", lsptrace.timestamp))
+	-- if lsptrace.msgKind == "request" then
+	-- 	table.insert(lines, string.format("Id: %d", lsptrace.id))
+	-- 	table.insert(lines, string.format("Params: %s", vim.inspect(lsptrace.msg.params)))
+	-- elseif lsptrace.msgKind == "response" then
+	-- 	table.insert(lines, string.format("Id: %d", lsptrace.id))
+	-- 	table.insert(lines, string.format("Result: %s", vim.inspect(lsptrace.msg.result)))
+	-- elseif lsptrace.msgKind == "error" then
+	-- 	table.insert(lines, string.format("Id: %d", lsptrace.id))
+	-- 	table.insert(lines, string.format("Error: %s", vim.inspect(lsptrace.msg.error)))
+	-- elseif lsptrace.msgKind == "notification" then
+	-- 	table.insert(lines, string.format("Params: %s", vim.inspect(lsptrace.msg.params)))
+	-- end
+	-- vim.print(vim.inspect({ name = 'hello', x = 'y' }))
+	-- return lines
 end
 function M.show_full_message()
 	local lineno = vim.fn.line(".")
@@ -27,11 +64,21 @@ function M.show_full_message()
 		style = "minimal",
 		border = "rounded",
 	})
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { original_line })
+	local pretty_printed_lines = pretty_print_original(original_line)
+	-- add original oneline text to the end
+	-- table.insert(pretty_printed_lines, original_line)
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, pretty_printed_lines)
 	vim.api.nvim_buf_set_keymap(
 		buf,
 		"n",
 		"q",
+		":q<CR>",
+		{ noremap = true, silent = true, desc = "close lsptrace full line window" }
+	)
+	vim.api.nvim_buf_set_keymap(
+		buf,
+		"n",
+		"<TAB>",
 		":q<CR>",
 		{ noremap = true, silent = true, desc = "close lsptrace full line window" }
 	)
@@ -46,7 +93,7 @@ function M.view_lsptrace()
 
 	local view_buffer = vim.api.nvim_create_buf(true, true)
 	local view_lines = {}
-	for line in buf_lines do
+	for _, line in pairs(buf_lines) do
 		table.insert(view_lines, parse_line(line))
 	end
 	vim.api.nvim_buf_set_lines(view_buffer, 0, -1, false, view_lines)
