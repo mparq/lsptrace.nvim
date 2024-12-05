@@ -89,12 +89,14 @@ local function find_opposite_line(
 	trace --[[@as LSPTrace]]
 )
 	assert(
-		trace ~= nil and trace.id ~= nil and (trace.msgKind == "request" or trace.msgKind == "response"),
-		"trace must be request or response"
+		trace ~= nil
+			and trace.id ~= nil
+			and (trace.msgKind == "request" or trace.msgKind == "response" or trace.msgKind == "error"),
+		"trace must be request or response or error"
 	)
 	local reqfrom = trace.from
 	local opposite_kind = "response"
-	if trace.msgKind == "response" then
+	if trace.msgKind == "response" or trace.msgKind == "error" then
 		reqfrom = opposite(trace.from)
 		opposite_kind = "request"
 	end
@@ -118,18 +120,24 @@ local function parse_trace_lines(lines)
 	for lineno, line in pairs(lines) do
 		local trace = vim.json.decode(line) --[[@as LSPTrace]]
 		table.insert(traces, trace)
-		if trace.msgKind == "request" or trace.msgKind == "response" then
-			-- if trace msg is of kind "response", then we need to look up the reqmap from its opposite
+		if trace.msgKind == "request" or trace.msgKind == "response" or trace.msgKind == "error" then
+			-- if trace msg is of kind "response" or "error", then we need to look up the reqmap from its opposite
 			-- e.g. response from server needs to lookup request id from the client request map
-			local origreqfrom = trace.msgKind == "response" and opposite(trace.from) or trace.from
+			local origreqfrom = trace.from
+			local msgRole = "request"
+			if trace.msgKind == "response" or trace.msgKind == "error" then
+				origreqfrom = opposite(trace.from)
+				msgRole = "response"
+			end
 			if reqmap[origreqfrom][trace.id] == nil then
 				reqmap[origreqfrom][trace.id] = {
 					request = nil,
 					response = nil,
 				}
 			end
-			-- msgKind is one of 'request' | 'response'
-			reqmap[origreqfrom][trace.id][trace.msgKind] = lineno
+			-- msgRole is one of 'request' | 'response'
+			-- note: msgKind of "error" will have msgRole of "response"
+			reqmap[origreqfrom][trace.id][msgRole] = lineno
 		end
 	end
 	return traces, reqmap
@@ -140,12 +148,12 @@ local function trace_line_to_header(
 	lsptrace --[[@as LSPTrace]]
 )
 	local opposite_trace = nil
-	if lsptrace.msgKind == "request" or lsptrace.msgKind == "response" then
+	if lsptrace.msgKind == "request" or lsptrace.msgKind == "response" or lsptrace.msgKind == "error" then
 		local opposite_line = find_opposite_line(M.data.reqmap, lsptrace)
 		opposite_trace = M.data.traces[opposite_line]
 	end
 	local duration_part = ""
-	if lsptrace.msgKind == "response" and opposite_trace ~= nil then
+	if (lsptrace.msgKind == "response" or lsptrace.msgKind == "error") and opposite_trace ~= nil then
 		local ts_req = utc_timestamp_to_time_micros(opposite_trace.timestamp)
 		local ts_res = utc_timestamp_to_time_micros(lsptrace.timestamp)
 		assert(ts_req ~= nil and ts_res ~= nil, "error parsing timestamps for req duration")
@@ -230,7 +238,7 @@ function M.view_lsptrace()
 		win = 0,
 	})
 	-- buffer is readonly
-	vim.api.nvim_set_option_value("modifiable", false, { buf = view_buffer })
+	-- vim.api.nvim_set_option_value("modifiable", false, { buf = view_buffer })
 	-- vim.api.nvim_set_option_value("buftype", "nofile", { buf = view_buffer })
 	-- set buf window to nowrap due to potentially long lines
 	vim.api.nvim_set_option_value("wrap", false, { win = win })
